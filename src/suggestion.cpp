@@ -27,10 +27,6 @@
 #include "tools.h"
 #include "constants.h"
 
-#if defined(ENABLE_XAPIAN)
-#include <unicode/locid.h>
-#endif  // ENABLE_XAPIAN
-
 namespace zim
 {
 
@@ -84,16 +80,8 @@ void SuggestionDataBase::initXapianDb() {
           language = m_archive.getMetadata("Language");
       } catch(...) {}
   }
-  if (!language.empty()) {
-      icu::Locale languageLocale(language.c_str());
-      /* Configuring language base stemming */
-      try {
-          m_stemmer = Xapian::Stem(languageLocale.getLanguage());
-      } catch (...) {
-          std::cout << "No stemming for language '" << languageLocale.getLanguage() << "'" << std::endl;
-      }
-  }
 
+  m_stemmer = getXapianStemmer(language);
   m_queryParser.set_stemmer(m_stemmer);
   m_database = database;
 }
