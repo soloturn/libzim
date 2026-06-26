@@ -89,12 +89,12 @@ void SuggestionDataBase::initXapianDb() {
       /* Configuring language base stemming */
       try {
           m_stemmer = Xapian::Stem(languageLocale.getLanguage());
-          m_queryParser.set_stemmer(m_stemmer);
       } catch (...) {
           std::cout << "No stemming for language '" << languageLocale.getLanguage() << "'" << std::endl;
       }
   }
 
+  m_queryParser.set_stemmer(m_stemmer);
   m_database = database;
 }
 
