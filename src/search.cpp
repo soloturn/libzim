@@ -307,7 +307,7 @@ Xapian::Enquire& Search::getEnquire() const
 
     auto query = mp_internalDb->parseQuery(m_query);
     if (mp_internalDb->m_verbose) {
-        std::cout << "Parsed query '" << m_query.m_query << "' to " << query.get_description() << std::endl;
+        std::cerr << "Parsed query '" << m_query.m_query << "' to " << query.get_description() << std::endl;
     }
     enquire->set_query(query);
 

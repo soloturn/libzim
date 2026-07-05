@@ -360,7 +360,7 @@ Xapian::Stem zim::getXapianStemmer(const std::string& iso639LangCode)
     try {
       stemmer = Xapian::Stem(twoLetterLangCode);
     } catch (...) {
-      std::cout << "No stemming for language '" << twoLetterLangCode << "'" << std::endl;
+      std::cerr << "No stemming for language '" << twoLetterLangCode << "'" << std::endl;
     }
   }
   return stemmer;

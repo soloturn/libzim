@@ -212,7 +212,7 @@ zim::HtmlParser::parse_html(const string &body)
 		if (enc == string::npos || enc == decl.size()) break;
 
 		if (decl[enc] != '=') break;
-		
+
 		enc = decl.find_first_not_of(" \t\r\n", enc + 1);
 		if (enc == string::npos || enc == decl.size()) break;
 
@@ -355,12 +355,12 @@ zim::HtmlParser::parse_html(const string &body)
 		    }
 		}
 #if 0
-		cout << "<" << tag;
+		cerr << "<" << tag;
 		map<string, string>::const_iterator x;
 		for (x = parameters.begin(); x != parameters.end(); x++) {
-		    cout << " " << x->first << "=\"" << x->second << "\"";
+		    cerr << " " << x->first << "=\"" << x->second << "\"";
 		}
-		cout << ">\n";
+		cerr << ">\n";
 #endif
 		opening_tag(tag);
 		parameters.clear();

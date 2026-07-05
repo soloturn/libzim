@@ -262,7 +262,7 @@ Xapian::Enquire& SuggestionSearch::getEnquire() const
     const auto unaccentedQuery = removeAccents(m_query);
     auto query = mp_internalDb->parseQuery(unaccentedQuery);
     if (mp_internalDb->m_verbose) {
-        std::cout << "Parsed query '" << unaccentedQuery << "' to " << query.get_description() << std::endl;
+        std::cerr << "Parsed query '" << unaccentedQuery << "' to " << query.get_description() << std::endl;
     }
     enquire->set_query(query);
 
