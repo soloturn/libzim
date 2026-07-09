@@ -503,12 +503,20 @@ void Creator::finishZimCreation()
   writeLastParts();
   data->outFile.closeFile();
 
-  TINFO("rename tmpfile to final one.");
-  DEFAULTFS::rename(data->tmpFileName, data->zimName);
+  // Rename the tempfile so that it is not removed if checksum computation
+  // fails with an exception because of an IO error, as well as so that the
+  // file left behind by a process killed for whatever reason (timeout,
+  // power-outage, etc) can be recognized and converted into a valid ZIM file
+  // by a simple script
+  const auto checksumlessZimFileName = data->zimName + ".without_checksum";
+  TINFO("rename tmpfile");
+  DEFAULTFS::rename(data->tmpFileName, checksumlessZimFileName);
   data->tmpFileName.clear();
 
   INFO("Adding checksum...");
-  addChecksum(data->zimName);
+  addChecksum(checksumlessZimFileName);
+  TINFO("rename tmpfile to final one.");
+  DEFAULTFS::rename(checksumlessZimFileName, data->zimName);
   INFO("ZIM file is ready!");
 
   TINFO("finish");
