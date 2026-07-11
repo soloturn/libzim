@@ -503,12 +503,13 @@ void Creator::finishZimCreation()
   writeLastParts();
   data->outFile.closeFile();
 
+  INFO("Adding checksum...");
+  addChecksum(data->tmpFileName);
+
   TINFO("rename tmpfile to final one.");
   DEFAULTFS::rename(data->tmpFileName, data->zimName);
   data->tmpFileName.clear();
 
-  INFO("Adding checksum...");
-  addChecksum(data->zimName);
   INFO("ZIM file is ready!");
 
   TINFO("finish");
