@@ -27,10 +27,6 @@
 #include "tools.h"
 #include "constants.h"
 
-#if defined(ENABLE_XAPIAN)
-#include <unicode/locid.h>
-#endif  // ENABLE_XAPIAN
-
 namespace zim
 {
 
@@ -84,17 +80,9 @@ void SuggestionDataBase::initXapianDb() {
           language = m_archive.getMetadata("Language");
       } catch(...) {}
   }
-  if (!language.empty()) {
-      icu::Locale languageLocale(language.c_str());
-      /* Configuring language base stemming */
-      try {
-          m_stemmer = Xapian::Stem(languageLocale.getLanguage());
-          m_queryParser.set_stemmer(m_stemmer);
-      } catch (...) {
-          std::cout << "No stemming for language '" << languageLocale.getLanguage() << "'" << std::endl;
-      }
-  }
 
+  m_stemmer = getXapianStemmer(language);
+  m_queryParser.set_stemmer(m_stemmer);
   m_database = database;
 }
 
@@ -274,7 +262,7 @@ Xapian::Enquire& SuggestionSearch::getEnquire() const
     const auto unaccentedQuery = removeAccents(m_query);
     auto query = mp_internalDb->parseQuery(unaccentedQuery);
     if (mp_internalDb->m_verbose) {
-        std::cout << "Parsed query '" << unaccentedQuery << "' to " << query.get_description() << std::endl;
+        std::cerr << "Parsed query '" << unaccentedQuery << "' to " << query.get_description() << std::endl;
     }
     enquire->set_query(query);
 

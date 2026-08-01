@@ -33,6 +33,7 @@
 #if defined(ENABLE_XAPIAN)
 namespace Xapian {
   class Database;
+  class Stem;
 }
 #endif  // ENABLE_XAPIAN
 namespace zim {
@@ -76,6 +77,7 @@ namespace zim {
 #if defined(ENABLE_XAPIAN)
   std::string LIBZIM_PRIVATE_API removeAccents(const std::string& text);
   bool LIBZIM_PRIVATE_API getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, Xapian::Database& database);
+  Xapian::Stem getXapianStemmer(const std::string& iso639LangCode);
 #endif
 }
 

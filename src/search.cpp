@@ -44,7 +44,6 @@
 #endif
 
 #include "xapian.h"
-#include <unicode/locid.h>
 
 #include "constants.h"
 
@@ -60,15 +59,7 @@ XapianDbMetadata::XapianDbMetadata(const Xapian::Database& db, std::string defau
     if (! language.empty()) {
         m_language = language;
     }
-    if (!m_language.empty()) {
-        icu::Locale languageLocale(language.c_str());
-        /* Configuring language base stemming */
-        try {
-            m_stemmer = Xapian::Stem(languageLocale.getLanguage());
-        } catch (...) {
-            std::cout << "No stemming for language '" << languageLocale.getLanguage() << "'" << std::endl;
-        }
-    }
+    m_stemmer = getXapianStemmer(m_language);
     m_stopwords = db.get_metadata("stopwords");
 }
 
@@ -316,7 +307,7 @@ Xapian::Enquire& Search::getEnquire() const
 
     auto query = mp_internalDb->parseQuery(m_query);
     if (mp_internalDb->m_verbose) {
-        std::cout << "Parsed query '" << m_query.m_query << "' to " << query.get_description() << std::endl;
+        std::cerr << "Parsed query '" << m_query.m_query << "' to " << query.get_description() << std::endl;
     }
     enquire->set_query(query);
 

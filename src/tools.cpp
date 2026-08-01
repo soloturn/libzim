@@ -282,6 +282,7 @@ zim::MimeCounterType zim::parseMimetypeCounter(const std::string& counterData)
 #include <unicode/translit.h>
 #include <unicode/ucnv.h>
 #include <unicode/putil.h>
+#include <unicode/locid.h>
 
 #define BATCH_SIZE (4*1024)
 std::string zim::removeAccents(const std::string& text)
@@ -349,4 +350,20 @@ void zim::setICUDataDirectory(const std::string& path)
 {
   u_setDataDirectory(path.c_str());
 }
+
+Xapian::Stem zim::getXapianStemmer(const std::string& iso639LangCode)
+{
+  Xapian::Stem stemmer;
+  if (!iso639LangCode.empty()) {
+    icu::Locale languageLocale(iso639LangCode.c_str());
+    const std::string twoLetterLangCode = languageLocale.getLanguage();
+    try {
+      stemmer = Xapian::Stem(twoLetterLangCode);
+    } catch (...) {
+      std::cerr << "No stemming for language '" << twoLetterLangCode << "'" << std::endl;
+    }
+  }
+  return stemmer;
+}
+
 #endif
