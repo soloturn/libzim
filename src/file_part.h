@@ -53,12 +53,22 @@ class FilePart {
         m_size(m_fhandle->getSize()) {}
 
 #ifndef _WIN32
+    // Note: we deliberately avoid (re)opening `/dev/fd/<fd>` by path here.
+    // That reopen is not guaranteed to succeed for every fd (e.g. some
+    // Android content-provider descriptors reject it with EACCES on some
+    // architectures, see https://github.com/openzim/libzim/issues/852), and
+    // it's unnecessary anyway: dup() gives us an independent, seekable
+    // descriptor on the same open file description without touching the
+    // filesystem at all.
     explicit FilePart(int fd) :
-        FilePart(getFilePathFromFD(fd)) {}
+        m_filename(getFilePathFromFD(fd)),
+        m_fhandle(std::make_shared<FS::FD>(dupFd(fd))),
+        m_offset(0),
+        m_size(m_fhandle->getSize()) {}
 
     explicit FilePart(FdInput fdInput):
         m_filename(getFilePathFromFD(fdInput.fd)),
-        m_fhandle(std::make_shared<FS::FD>(FS::openFile(m_filename))),
+        m_fhandle(std::make_shared<FS::FD>(dupFd(fdInput.fd))),
         m_offset(fdInput.offset),
         m_size(fdInput.size) {}
 #endif
@@ -67,6 +77,12 @@ class FilePart {
     const std::string& filename() const { return m_filename; };
     const FS::FD& fhandle() const { return *m_fhandle; };
     const FDSharedPtr& shareable_fhandle() const { return m_fhandle; };
+#ifndef _WIN32
+    // The native descriptor backing this part, dup()-able by callers that
+    // want an independent handle on the same data without (re)opening
+    // `filename()` by path. See ItemDataDirectAccessInfo::fd.
+    int nativeFd() const { return m_fhandle->getNativeHandle(); }
+#endif
 
     zsize_t size() const { return m_size; };
     offset_t offset() const { return m_offset; }

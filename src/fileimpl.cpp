@@ -862,7 +862,11 @@ bool checkTitleListing(const IndirectDirentAccessor& accessor, entry_index_type 
     auto part = first_part->second;
     const offset_type logical_local_offset(full_offset - range.min);
     const auto physical_local_offset = logical_local_offset + part->offset().v;
+#ifndef _WIN32
+    return ItemDataDirectAccessInfo(part->filename(), physical_local_offset, part->nativeFd());
+#else
     return ItemDataDirectAccessInfo(part->filename(), physical_local_offset);
+#endif
   }
 
   Blob FileImpl::getBlob(const Dirent& dirent, offset_t offset) const

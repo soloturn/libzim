@@ -32,6 +32,10 @@
 
 #include "gtest/gtest.h"
 
+#ifndef _WIN32
+# include <fcntl.h>
+#endif
+
 namespace {
 
 using zim::unittests::TempZimArchive;
@@ -89,6 +93,31 @@ TEST(Suggestion, searchByTitle)
     ASSERT_EQ(mainItem.getPath(), result.begin()->getPath());
   }
 }
+
+#ifndef _WIN32
+// Regression test for the title/Xapian suggestion index of an archive
+// opened from a file descriptor rather than a path. The Xapian database is
+// itself opened internally by (re)acquiring a descriptor for its embedded
+// location (see FileImpl::loadXapianDb / getDbFromAccessInfo); this must
+// keep working when the archive has no real backing path to reopen (e.g.
+// some Android content-provider descriptors, see
+// https://github.com/openzim/libzim/issues/852).
+TEST(Suggestion, searchByTitleOnArchiveOpenedByFD)
+{
+  for(auto& testfile:getDataFilePath("small.zim")) {
+    const int fd = open(testfile.path.c_str(), O_RDONLY);
+    ASSERT_NE(-1, fd);
+    const zim::Archive archive(fd);
+    ASSERT_TRUE(archive.hasTitleIndex());
+    const auto mainItem = archive.getMainEntry().getItem(true);
+    zim::SuggestionSearcher suggestionSearcher(archive);
+    auto suggestionSearch = suggestionSearcher.suggest(mainItem.getTitle());
+    ASSERT_NE(0, suggestionSearch.getEstimatedMatches());
+    auto result = suggestionSearch.getResults(0, archive.getEntryCount());
+    ASSERT_EQ(mainItem.getPath(), result.begin()->getPath());
+  }
+}
+#endif // not _WIN32
 #endif
 
 

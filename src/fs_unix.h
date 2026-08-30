@@ -85,6 +85,13 @@ struct FS {
 
 std::string getFilePathFromFD(int fd);
 
+// Returns an independent, dup()'d file descriptor referring to the same
+// open file description as `fd`. Unlike (re)opening `/dev/fd/<fd>` by path,
+// this cannot fail with a permission error and works even when `fd` isn't
+// safely reopenable by path (e.g. some Android content-provider descriptors,
+// see https://github.com/openzim/libzim/issues/852).
+unix::FD dupFd(int fd);
+
 }; // zim namespace
 
 #endif //ZIM_FS_UNIX_H_

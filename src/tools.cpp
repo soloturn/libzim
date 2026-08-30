@@ -320,7 +320,20 @@ std::string zim::removeAccents(const std::string& text)
 bool zim::getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, Xapian::Database& database) {
   zim::DEFAULTFS::FD databasefd;
   try {
+#ifndef _WIN32
+      // Prefer dup()'ing the descriptor we already have open over (re)opening
+      // `accessInfo.filename` by path: that path may be synthetic (e.g.
+      // `/dev/fd/N` when the archive was opened from a file descriptor) and
+      // isn't guaranteed to be safely reopenable by the OS, see
+      // https://github.com/openzim/libzim/issues/852.
+      if (accessInfo.fd >= 0) {
+        databasefd = zim::dupFd(accessInfo.fd);
+      } else {
+        databasefd = zim::DEFAULTFS::openFile(accessInfo.filename);
+      }
+#else
       databasefd = zim::DEFAULTFS::openFile(accessInfo.filename);
+#endif
   } catch (...) {
       std::cerr << "Impossible to open " << accessInfo.filename << std::endl;
       std::cerr << strerror(errno) << std::endl;
