@@ -37,6 +37,7 @@
 #include "file_compound.h"
 #include "buffer_reader.h"
 #include "compact_index.h"
+#include "dirent_chunk.h"
 #include "endian_tools.h"
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -100,6 +101,40 @@ compactPathPtrReader(const Reader& zimReader, offset_t offset, entry_index_type 
 
   const auto decoded = compactDecodeOffsetList(compressedBuf.data(), compressedSize.v, articleCount);
   return std::unique_ptr<Reader>(new BufferReader(decoded));
+}
+
+// Reads back the "dirent chunk pointer list" written by
+// writeDirentChunkPtrList() and switches `direntReader` into dirent-chunk
+// mode (see dirent_chunk.h and DirentReader::enableChunkedDirents()).
+//
+// Unlike the cluster pointer list, this list's own position isn't
+// recorded in a dedicated Fileheader field -- there's no room left in the
+// fixed 80-byte ZIM header for one. Instead its position is derived from
+// pathPtrPos: the on-disk layout is
+//   [dirent chunks][chunk ptr list][chunk count: 8 bytes LE][path ptr list]
+// so a reader that knows pathPtrPos (already a header field) can walk
+// backwards from it: the 8-byte count sits immediately before it, and the
+// count*8 bytes of the pointer list sit immediately before that.
+//
+// Only called when Fileheader::usesCompactIndexStructures() is set.
+void setUpChunkedDirents(const Reader& zimReader, const Fileheader& header, DirentReader& direntReader)
+{
+  const zsize_t countSize(sizeof(uint64_t));
+  const offset_t countPos(header.getPathPtrPos() - countSize.v);
+  if (!zimReader.can_read(countPos, countSize)) {
+    throw ZimFileFormatError("Dirent chunk count outside (or not fully inside) ZIM file.");
+  }
+  const auto countBuf = zimReader.get_buffer(countPos, countSize);
+  const uint64_t chunkCount = fromLittleEndian<uint64_t>(countBuf.data());
+
+  const zsize_t chunkPtrListSize(sizeof(offset_type) * chunkCount);
+  if (chunkPtrListSize.v > countPos.v) {
+    throw ZimFileFormatError("Dirent chunk pointer table outside (or not fully inside) ZIM file.");
+  }
+  const offset_t chunkPtrListStart(countPos.v - chunkPtrListSize.v);
+
+  auto chunkPtrReader = sectionSubReader(zimReader, "Dirent chunk pointer table", chunkPtrListStart, chunkPtrListSize);
+  direntReader.enableChunkedDirents(std::move(chunkPtrReader), chunkCount, chunkPtrListStart);
 }
 
 std::shared_ptr<Reader>
@@ -257,6 +292,10 @@ private: // data
       throw ZimFileFormatError("Zim file(s) is of bad size or corrupted.");
     }
 
+    if (header.usesCompactIndexStructures()) {
+      setUpChunkedDirents(*zimReader, header, *direntReader);
+    }
+
     auto pathPtrReader = header.usesCompactIndexStructures()
       ? compactPathPtrReader(*zimReader, offset_t(header.getPathPtrPos()), header.getArticleCount())
       : sectionSubReader(*zimReader,
@@ -397,9 +436,18 @@ private: // data
     }
     result = std::min(result, header.getClusterPtrPos());
     if ( getCountArticles().v != 0 ) {
-      // assuming that dirents are placed in the zim file in the same
-      // order as the corresponding entries in the dirent pointer table
-      result = std::min(result, mp_pathDirentAccessor->getOffset(entry_index_t(0)).v);
+      if (header.usesCompactIndexStructures()) {
+        // Dirent offsets are packed (chunkIndex, intraChunkOffset) values
+        // in this mode (see dirent_chunk.h): entry 0's "offset" is not a
+        // real file position (it's usually 0), so use the first dirent
+        // chunk's actual file position instead -- it's still true that
+        // the first dirent chunk is placed right after the mimetype list.
+        result = std::min(result, direntReader->getFirstChunkOffset().v);
+      } else {
+        // assuming that dirents are placed in the zim file in the same
+        // order as the corresponding entries in the dirent pointer table
+        result = std::min(result, mp_pathDirentAccessor->getOffset(entry_index_t(0)).v);
+      }
 
       // assuming that clusters are placed in the zim file in the same
       // order as the corresponding entries in the cluster pointer table
@@ -515,6 +563,16 @@ private: // data
     Grouping<entry_index_type, cluster_index_type> g(startIdx, endIdx);
     for(auto i = startIdx; i < endIdx; i++)
     {
+      if (header.usesCompactIndexStructures()) {
+        // Dirent offsets are packed (chunkIndex, intraChunkOffset) values
+        // in this mode (see dirent_chunk.h), not real file offsets -- we
+        // cannot byte-peek directly into zimReader like the fast path
+        // below does. Go through the normal (chunk-aware, cached) dirent
+        // decode instead.
+        const auto dirent = mp_pathDirentAccessor->getDirent(entry_index_t(i));
+        g.add(dirent->isArticle() ? cluster_index_type(dirent->getClusterNumber()) : 0);
+        continue;
+      }
       // This is the offset of the dirent in the zimFile
       auto indexOffset = mp_pathDirentAccessor->getOffset(entry_index_t(i));
       // Get the mimeType of the dirent (offset 0) to know the type of the dirent
@@ -743,6 +801,27 @@ private: // data
 
   bool FileImpl::checkDirentPtrs() {
     const entry_index_type articleCount = getCountArticles().v;
+
+    if (header.usesCompactIndexStructures()) {
+      // Dirent offsets are packed (chunkIndex, intraChunkOffset) values
+      // (see dirent_chunk.h), not raw file offsets -- the file-level byte
+      // range check below doesn't apply. Validate the chunk index is in
+      // range instead; this deliberately doesn't decompress every chunk
+      // to validate the intra-chunk offset too, to keep this a cheap,
+      // non-content-reading check like the non-chunked case below (actual
+      // dirent content is validated by DIRENT_ORDER / normal reads, which
+      // go through DirentReader::readDirentFromChunk()).
+      for ( entry_index_type i = 0; i < articleCount; ++i )
+      {
+        const auto offset = mp_pathDirentAccessor->getOffset(entry_index_t(i));
+        if ( direntChunkIndex(offset.v) >= direntReader->getChunkCount() ) {
+          std::cerr << "Invalid dirent pointer (chunk index out of range)" << std::endl;
+          return false;
+        }
+      }
+      return true;
+    }
+
     const offset_t validDirentRangeStart(80); // XXX: really???
     const offset_t validDirentRangeEnd = header.hasChecksum()
                                        ? offset_t(header.getChecksumPos())
