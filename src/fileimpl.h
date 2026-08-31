@@ -146,6 +146,17 @@ namespace zim
       offset_t getClusterOffset(cluster_index_t idx) const;
       offset_t getBlobOffset(cluster_index_t clusterIdx, blob_index_t blobIdx) const;
       ItemDataDirectAccessInfo getDirectAccessInformation(cluster_index_t clusterIdx, blob_index_t blobIdx) const;
+#ifndef _WIN32
+      // Same lookup as the overload above, but also yields (via `fd`) the
+      // native descriptor backing the part, or -1 if none is available
+      // (e.g. the part isn't fd-backed). Internal-only: unlike
+      // ItemDataDirectAccessInfo, which is returned by value from the
+      // public Item::getDirectAccessInformation() API and so must stay
+      // ABI-stable, this overload is free to carry the fd as a plain
+      // out-param. Used by loadXapianDb() to dup() rather than reopen a
+      // possibly-synthetic path, see getDbFromAccessInfo() in tools.cpp.
+      ItemDataDirectAccessInfo getDirectAccessInformation(cluster_index_t clusterIdx, blob_index_t blobIdx, int& fd) const;
+#endif
 
       entry_index_t getNamespaceBeginOffset(char ch) const;
       entry_index_t getNamespaceEndOffset(char ch) const;

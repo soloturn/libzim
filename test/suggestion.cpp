@@ -34,6 +34,7 @@
 
 #ifndef _WIN32
 # include <fcntl.h>
+# include <unistd.h>
 #endif
 
 namespace {
@@ -108,6 +109,10 @@ TEST(Suggestion, searchByTitleOnArchiveOpenedByFD)
     const int fd = open(testfile.path.c_str(), O_RDONLY);
     ASSERT_NE(-1, fd);
     const zim::Archive archive(fd);
+    // Archive(int fd) does not take ownership of fd (see its public API
+    // docs); dup()'d internally by FilePart, so it's safe -- and our
+    // responsibility -- to close it as soon as the archive is constructed.
+    close(fd);
     ASSERT_TRUE(archive.hasTitleIndex());
     const auto mainItem = archive.getMainEntry().getItem(true);
     zim::SuggestionSearcher suggestionSearcher(archive);
@@ -866,7 +871,11 @@ TEST(Suggestion, indexFullPath) {
   ASSERT_TRUE(dai.isValid());
 
   Xapian::Database database;
+#ifndef _WIN32
+  ASSERT_TRUE(zim::getDbFromAccessInfo(dai, -1, database));
+#else
   ASSERT_TRUE(zim::getDbFromAccessInfo(dai, database));
+#endif
   const auto lastdocid = database.get_lastdocid();
   ASSERT_EQ(lastdocid, 7);
 

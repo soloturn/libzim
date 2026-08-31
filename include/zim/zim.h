@@ -228,24 +228,6 @@ namespace zim
       */
      offset_type offset;
 
-#ifndef _WIN32
-     /**
-      * An already-open file descriptor for `filename`, or -1 if none is
-      * available.
-      *
-      * When set, callers should prefer `dup(fd)` over (re)opening `filename`
-      * by path. `filename` may be a synthetic path (e.g. `/dev/fd/N` on
-      * platforms where the archive was opened from a file descriptor rather
-      * than a path) that isn't guaranteed to be safely re-openable by the OS
-      * -- see https://github.com/openzim/libzim/issues/852. The caller does
-      * not take ownership of `fd`; it remains valid only as long as the
-      * `Item`/`Archive` it was obtained from is alive, and each `dup()` of it
-      * yields an independent descriptor that the caller is responsible for
-      * closing.
-      */
-     int fd = -1;
-#endif
-
      explicit ItemDataDirectAccessInfo()
        : filename(),
          offset()
@@ -255,14 +237,6 @@ namespace zim
        : filename(filename),
          offset(offset)
      {}
-
-#ifndef _WIN32
-     ItemDataDirectAccessInfo(const std::string& filename, offset_type offset, int fd)
-       : filename(filename),
-         offset(offset),
-         fd(fd)
-     {}
-#endif
 
      /**
       * Return if the ItemDataDirectAccessInfo is valid

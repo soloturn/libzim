@@ -76,7 +76,22 @@ namespace zim {
 // Xapian based tools
 #if defined(ENABLE_XAPIAN)
   std::string LIBZIM_PRIVATE_API removeAccents(const std::string& text);
+#ifndef _WIN32
+  // `fd`, if >= 0, is an already-open descriptor for `accessInfo.filename`
+  // (see FileImpl::loadXapianDb()); dup()'ing it is preferred over
+  // (re)opening `accessInfo.filename` by path, since that path may be
+  // synthetic (e.g. `/dev/fd/N`) and isn't guaranteed to be safely
+  // reopenable, see https://github.com/openzim/libzim/issues/852. This is
+  // kept as a separate internal-only parameter rather than a field on
+  // ItemDataDirectAccessInfo itself, since that struct is returned by value
+  // from the public Item::getDirectAccessInformation() API and adding a
+  // field to it would change its layout and break ABI for consumers built
+  // against an older header (as happened, and had to be reverted, for
+  // Entry::getItem() in 8.1.0/8.2.0).
+  bool LIBZIM_PRIVATE_API getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, int fd, Xapian::Database& database);
+#else
   bool LIBZIM_PRIVATE_API getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, Xapian::Database& database);
+#endif
   Xapian::Stem getXapianStemmer(const std::string& iso639LangCode);
 #endif
 }

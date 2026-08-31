@@ -317,7 +317,11 @@ std::string zim::removeAccents(const std::string& text)
   return unaccentedText;
 }
 
+#ifndef _WIN32
+bool zim::getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, int fd, Xapian::Database& database) {
+#else
 bool zim::getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, Xapian::Database& database) {
+#endif
   zim::DEFAULTFS::FD databasefd;
   try {
 #ifndef _WIN32
@@ -326,17 +330,19 @@ bool zim::getDbFromAccessInfo(zim::ItemDataDirectAccessInfo accessInfo, Xapian::
       // `/dev/fd/N` when the archive was opened from a file descriptor) and
       // isn't guaranteed to be safely reopenable by the OS, see
       // https://github.com/openzim/libzim/issues/852.
-      if (accessInfo.fd >= 0) {
-        databasefd = zim::dupFd(accessInfo.fd);
+      if (fd >= 0) {
+        databasefd = zim::dupFd(fd);
       } else {
         databasefd = zim::DEFAULTFS::openFile(accessInfo.filename);
       }
 #else
       databasefd = zim::DEFAULTFS::openFile(accessInfo.filename);
 #endif
-  } catch (...) {
-      std::cerr << "Impossible to open " << accessInfo.filename << std::endl;
-      std::cerr << strerror(errno) << std::endl;
+  } catch (const std::exception& e) {
+      // dupFd()/openFile() already throw a fully-formatted message (with
+      // strerror() baked in where relevant); avoid appending our own
+      // separate/possibly-stale-errno strerror() line on top of it.
+      std::cerr << "Impossible to open " << accessInfo.filename << ": " << e.what() << std::endl;
       return false;
   }
   if (!databasefd.seek(zim::offset_t(accessInfo.offset))) {

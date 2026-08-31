@@ -1027,16 +1027,7 @@ TEST_F(ZimArchive, openZIMFileMultiPartEmbeddedInAnotherFile)
 #if WITH_TEST_DATA
 zim::Blob readItemData(const zim::ItemDataDirectAccessInfo& dai, zim::size_type size)
 {
-#ifndef _WIN32
-  // Prefer dup()'ing the fd we were handed over (re)opening `dai.filename`
-  // by path, exactly as a real fd-based consumer (e.g. an Android content
-  // provider fd) should. See ItemDataDirectAccessInfo::fd.
-  zim::DEFAULTFS::FD fd = dai.fd >= 0
-    ? zim::dupFd(dai.fd)
-    : zim::DEFAULTFS::openFile(dai.filename);
-#else
   zim::DEFAULTFS::FD fd(zim::DEFAULTFS::openFile(dai.filename));
-#endif
   std::shared_ptr<char> data(new char[size], std::default_delete<char[]>());
   fd.readAt(data.get(), zim::zsize_t(size), zim::offset_t(dai.offset));
   return zim::Blob(data, size);
