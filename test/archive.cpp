@@ -286,6 +286,16 @@ TEST_F(ZimArchive, openRealZimArchive)
   }
 }
 
+TEST_F(ZimArchive, getChecksum)
+{
+  for (auto& testfile: getDataFilePath("small.zim")) {
+    const zim::Archive archive(testfile.path);
+    const auto checksum = archive.getChecksum();
+    EXPECT_EQ(32U, checksum.size());
+    EXPECT_EQ(std::string::npos, checksum.find_first_not_of("0123456789abcdef"));
+  }
+}
+
 TEST_F(ZimArchive, openSplitZimArchive)
 {
   const char* fname = "wikibooks_be_all_nopic_2017-02_splitted.zim";
