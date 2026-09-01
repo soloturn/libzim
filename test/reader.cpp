@@ -68,6 +68,15 @@ TEST(FileReader, shouldJustWork)
     ASSERT_EQ(offset_t(baseOffset+0), reader->offset());
     ASSERT_EQ(zsize_t(sizeof(data)-1), reader->size());
 
+    // On-disk data (FileReader/MultiPartFileReader) isn't counted, since it
+    // can be mmapped and is managed by the kernel, not our cache; an
+    // in-memory Buffer's own size is.
+    if (createReader == createBufferReader) {
+      ASSERT_EQ(zsize_t(sizeof(data)-1).v, reader->getMemorySize());
+    } else {
+      ASSERT_EQ(0U, reader->getMemorySize());
+    }
+
     ASSERT_EQ('a', reader->read(offset_t(0)));
     ASSERT_EQ('e', reader->read(offset_t(4)));
 
