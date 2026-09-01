@@ -83,6 +83,27 @@ namespace zim
        */
       zim::ItemDataDirectAccessInfo getDirectAccessInformation() const;
 
+#ifndef _WIN32
+      /** An owned file descriptor for direct access to this item's data.
+       *
+       * Like getDirectAccessInformation(), but hands back an already-open,
+       * dup()'d file descriptor instead of (only) a filename to (re)open.
+       * Prefer this over (re)opening getDirectAccessInformation().filename
+       * by path: that path may be synthetic (e.g. `/dev/fd/N`, when the
+       * archive itself was opened from a file descriptor) and isn't
+       * guaranteed to be safely reopenable by the OS -- see
+       * https://github.com/openzim/libzim/issues/852.
+       *
+       * The returned descriptor is independent of and outlives the Item;
+       * the caller takes ownership and is responsible for closing it.
+       * Seek to getDirectAccessInformation().offset before reading from it.
+       *
+       * @return An owned, dup()'d file descriptor, or -1 if direct access
+       *         isn't possible for this item (see getDirectAccessInformation()).
+       */
+      int getDirectAccessFd() const;
+#endif
+
       entry_index_type getIndex() const   { return Entry::getIndex(); }
 
 #ifdef ZIM_PRIVATE

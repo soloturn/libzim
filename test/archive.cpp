@@ -1054,6 +1054,40 @@ TEST_F(ZimArchive, getDirectAccessInformation)
 }
 
 #ifndef _WIN32
+// Regression test for Item::getDirectAccessFd(): callers should be able to
+// dup() an already-open descriptor for direct-access items instead of
+// (re)opening getDirectAccessInformation().filename by path -- see
+// https://github.com/openzim/libzim/issues/852.
+TEST_F(ZimArchive, getDirectAccessFd)
+{
+  for(auto& testfile:getDataFilePath("small.zim")) {
+    const zim::Archive archive(testfile.path);
+    zim::entry_index_type checkedItemCount = 0;
+    for ( auto entry : archive.iterEfficient() ) {
+      if (!entry.isRedirect()) {
+        const TestContext ctx{ {"entry", entry.getPath() } };
+        const auto item = entry.getItem();
+        const auto dai = item.getDirectAccessInformation();
+        const int fd = item.getDirectAccessFd();
+        if ( dai.isValid() ) {
+          ++checkedItemCount;
+          ASSERT_NE(-1, fd) << ctx;
+          // The caller owns fd; wrap it in a zim::DEFAULTFS::FD so it gets
+          // closed once we're done reading from it.
+          zim::DEFAULTFS::FD ownedFd(fd);
+          const auto size = item.getSize();
+          std::shared_ptr<char> data(new char[size], std::default_delete<char[]>());
+          ownedFd.readAt(data.get(), zim::zsize_t(size), zim::offset_t(dai.offset));
+          EXPECT_EQ(item.getData(), zim::Blob(data, size)) << ctx;
+        } else {
+          EXPECT_EQ(-1, fd) << ctx;
+        }
+      }
+    }
+    ASSERT_NE(0U, checkedItemCount);
+  }
+}
+
 TEST_F(ZimArchive, getDirectAccessInformationInAnArchiveOpenedByFD)
 {
   for(auto& testfile:getDataFilePath("small.zim")) {
