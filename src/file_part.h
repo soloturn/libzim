@@ -80,7 +80,7 @@ class FilePart {
 #ifndef _WIN32
     // The native descriptor backing this part, dup()-able by callers that
     // want an independent handle on the same data without (re)opening
-    // `filename()` by path. See ItemDataDirectAccessInfo::fd.
+    // `filename()` by path. See Item::getDirectAccessFd().
     int nativeFd() const { return m_fhandle->getNativeHandle(); }
 #endif
 

@@ -32,6 +32,8 @@
 
 #include "gtest/gtest.h"
 
+#include <limits>
+
 #ifndef _WIN32
 # include <fcntl.h>
 # include <unistd.h>
@@ -889,6 +891,19 @@ TEST(Suggestion, indexFullPath) {
   ASSERT_EQ(database.get_document(6).get_data(), "C/Volume2/Chapter3");
   ASSERT_EQ(database.get_document(7).get_data(), "C/Volume2/Chapter4");
 }
+
+#ifndef _WIN32
+// getDbFromAccessInfo()'s catch block (dupFd() failing) is otherwise never
+// exercised - every FD-backed test here opens a real, valid file. Calling
+// it directly with a deliberately-bad fd covers that branch without needing
+// a fixture that corrupts an embedded Xapian db.
+TEST(Suggestion, getDbFromAccessInfoFailsGracefullyOnAnInvalidFd)
+{
+  const zim::ItemDataDirectAccessInfo dai("this-filename-is-unused-when-fd-is-set", 0);
+  Xapian::Database database;
+  ASSERT_FALSE(zim::getDbFromAccessInfo(dai, /*fd=*/std::numeric_limits<int>::max(), database));
+}
+#endif // not _WIN32
 #endif // LIBZIM_WITHOUT_WRITER
 
 } // unnamed namespace

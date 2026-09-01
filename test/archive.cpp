@@ -1088,6 +1088,14 @@ TEST_F(ZimArchive, getDirectAccessFd)
   }
 }
 
+// dupFd()'s error path (dup(2) itself failing) is otherwise never exercised
+// by any archive-opening test - all of those pass it a descriptor that's
+// known-good.
+TEST(Tools, dupFdThrowsOnAnInvalidFd)
+{
+  EXPECT_THROW(zim::dupFd(-1), std::runtime_error);
+}
+
 TEST_F(ZimArchive, getDirectAccessInformationInAnArchiveOpenedByFD)
 {
   for(auto& testfile:getDataFilePath("small.zim")) {
