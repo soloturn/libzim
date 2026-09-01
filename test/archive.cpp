@@ -230,6 +230,14 @@ TEST_F(ZimArchive, openCreatedArchive)
   ASSERT_EQ(illu96.getPath(), "Illustration_96x96@1");
   ASSERT_EQ(std::string(illu96.getData()), "PNGBinaryContent96");
 
+  // getIllustrationItem(size) delegates to the IllustrationInfo overload
+  // above but was never itself called by any test; also exercise its
+  // not-found path (throws EntryNotFound) since this archive already has
+  // two illustrations to look up.
+  ASSERT_EQ(archive.getIllustrationItem(48).getPath(), "Illustration_48x48@1");
+  ASSERT_EQ(archive.getIllustrationItem(96).getPath(), "Illustration_96x96@1");
+  ASSERT_THROW(archive.getIllustrationItem(9999), zim::EntryNotFound);
+
   auto foo = archive.getEntryByPath("foo");
   ASSERT_EQ(foo.getPath(), "foo");
   ASSERT_EQ(foo.getTitle(), "Foo");
