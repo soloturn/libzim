@@ -44,6 +44,20 @@ namespace zim
       {}
   };
 
+  /**
+   * Exception thrown when a search match is aborted via `Search::cancel()`.
+   *
+   * Thrown from inside the Xapian match itself, so it must never be caught and
+   * swallowed by a caller that wants cancellation to work.
+   */
+  class LIBZIM_API SearchCancelled : public std::runtime_error
+  {
+    public:
+      explicit SearchCancelled()
+       : std::runtime_error("search cancelled")
+      {}
+  };
+
   class LIBZIM_API EntryNotFound : public std::runtime_error
   {
     public:

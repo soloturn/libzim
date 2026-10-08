@@ -23,6 +23,8 @@
  */
 
 #include <mutex>
+#include <atomic>
+#include <memory>
 #include <zim/error.h>
 #include <zim/search.h>
 #include <zim/archive.h>
@@ -239,9 +241,103 @@ void Searcher::initDatabase()
     mp_internalDb = std::make_shared<InternalDataBase>(m_archives, m_verbose);
 }
 
+namespace
+{
+
+// Match-all posting source that aborts the match once its flag is set.
+// Combined with the real query via OP_FILTER so the flag is checked once per
+// candidate document — including inside and-like positional checks, which is
+// where an Enquire-level cancel would never get a chance to look.
+class CancelPostingSource : public Xapian::PostingSource
+{
+  public:
+    explicit CancelPostingSource(std::shared_ptr<std::atomic<bool>> cancelled)
+      : mp_cancelled(std::move(cancelled))
+    {}
+
+    Xapian::doccount get_termfreq_min() const override { return m_doccount; }
+    Xapian::doccount get_termfreq_est() const override { return m_doccount; }
+    Xapian::doccount get_termfreq_max() const override { return m_doccount; }
+
+    // Overriding init() rather than reset() keeps this buildable against both
+    // Xapian 1.4 (init only) and 2.x (reset forwards to init).
+    void init(const Xapian::Database& db) override
+    {
+      m_doccount = db.get_doccount();
+      m_did = 0;
+      m_atEnd = (m_doccount == 0);
+    }
+
+    void next(double) override
+    {
+      checkCancelled();
+      if (m_atEnd) return;
+      m_did = (m_did == 0) ? 1 : m_did + 1;
+      if (m_did > m_doccount) m_atEnd = true;
+    }
+
+    void skip_to(Xapian::docid did, double) override
+    {
+      checkCancelled();
+      if (m_atEnd) return;
+      if (m_did < did) m_did = did;
+      if (m_did > m_doccount) m_atEnd = true;
+    }
+
+    bool check(Xapian::docid did, double) override
+    {
+      checkCancelled();
+      if (did > m_doccount) {
+        m_atEnd = true;
+        return false;
+      }
+      m_did = did;
+      return true;
+    }
+
+    Xapian::docid get_docid() const override { return m_did; }
+
+    bool at_end() const override { return m_atEnd; }
+
+    Xapian::PostingSource* clone() const override
+    {
+      return new CancelPostingSource(mp_cancelled);
+    }
+
+    std::string get_description() const override
+    {
+      return "CancelPostingSource";
+    }
+
+  private:
+    void checkCancelled() const
+    {
+      if (mp_cancelled->load(std::memory_order_relaxed))
+        throw SearchCancelled();
+    }
+
+    std::shared_ptr<std::atomic<bool>> mp_cancelled;
+    Xapian::docid m_did = 0;
+    Xapian::doccount m_doccount = 0;
+    bool m_atEnd = true;
+};
+
+} // anonymous namespace
+
+// Everything Search gains for cancellation lives here, behind the one pointer
+// slot Search already had, so sizeof(Search) does not change.
+struct SearchState
+{
+    std::shared_ptr<std::atomic<bool>> cancelled
+      = std::make_shared<std::atomic<bool>>(false);
+    std::unique_ptr<Xapian::Enquire> enquire;
+    // Query(PostingSource*) does not take ownership; keep the source alive.
+    std::shared_ptr<Xapian::PostingSource> cancelSource;
+};
+
 Search::Search(std::shared_ptr<InternalDataBase> p_internalDb, const Query& query)
  : mp_internalDb(p_internalDb),
-   mp_enquire(nullptr),
+   mp_state(new SearchState),
    m_query(query)
 {
 }
@@ -249,6 +345,18 @@ Search::Search(std::shared_ptr<InternalDataBase> p_internalDb, const Query& quer
 Search::Search(Search&& s) = default;
 Search& Search::operator=(Search&& s) = default;
 Search::~Search() = default;
+
+void Search::cancel()
+{
+    if (mp_state) {
+        mp_state->cancelled->store(true, std::memory_order_relaxed);
+    }
+}
+
+bool Search::isCancelled() const
+{
+    return mp_state && mp_state->cancelled->load(std::memory_order_relaxed);
+}
 
 Query::Query(const std::string& query) :
   m_query(query)
@@ -276,6 +384,9 @@ int Search::getEstimatedMatches() const
       // Else, the get_matches_estimated may be wrong and return 0 even if we have results.
       auto mset = enquire.get_mset(0, 0, 10);
       return mset.get_matches_estimated();
+    } catch(const SearchCancelled&) {
+      // Never fold a cancel into a search error.
+      throw;
     } catch(Xapian::QueryParserError& e) {
       return 0;
     } catch(Xapian::DatabaseError& e) {
@@ -289,6 +400,9 @@ const SearchResultSet Search::getResults(int start, int maxResults) const {
       auto enquire = getEnquire();
       auto mset = enquire.get_mset(start, maxResults);
       return SearchResultSet(mp_internalDb, std::move(mset));
+    } catch(const SearchCancelled&) {
+      // Never fold a cancel into a search error.
+      throw;
     } catch(Xapian::QueryParserError& e) {
       return SearchResultSet(mp_internalDb);
     } catch(Xapian::DatabaseError& e) {
@@ -298,8 +412,8 @@ const SearchResultSet Search::getResults(int start, int maxResults) const {
 
 Xapian::Enquire& Search::getEnquire() const
 {
-    if ( mp_enquire ) {
-        return *mp_enquire;
+    if ( mp_state->enquire ) {
+        return *mp_state->enquire;
     }
 
     LOCK_SEARCH(mp_internalDb);
@@ -309,10 +423,19 @@ Xapian::Enquire& Search::getEnquire() const
     if (mp_internalDb->m_verbose) {
         std::cerr << "Parsed query '" << m_query.m_query << "' to " << query.get_description() << std::endl;
     }
+
+    // Always installed: a match-all filter costs one atomic load per candidate
+    // and leaves the result set and ranking untouched. Query(PostingSource*)
+    // does not take ownership, so SearchState keeps the source alive.
+    auto cancelSource = std::make_shared<CancelPostingSource>(mp_state->cancelled);
+    query = Xapian::Query(Xapian::Query::OP_FILTER, query,
+                          Xapian::Query(cancelSource.get()));
+    mp_state->cancelSource = cancelSource;
+
     enquire->set_query(query);
 
-    mp_enquire = std::move(enquire);
-    return *mp_enquire;
+    mp_state->enquire = std::move(enquire);
+    return *mp_state->enquire;
 }
 
 

@@ -40,6 +40,7 @@ class InternalDataBase;
 class Query;
 class Search;
 class SearchResultSet;
+struct SearchState;
 
 /**
  * A Searcher is a object fulltext searching a set of Archives
@@ -160,6 +161,17 @@ class LIBZIM_API Search
         Search& operator=(Search&& s);
         ~Search();
 
+        /** Abort a running match from another thread.
+         *
+         *  Thread-safe and sticky: the in-flight `get_mset()` throws
+         *  `SearchCancelled` at the next candidate document, and every later
+         *  `getResults()`/`getEstimatedMatches()` throws immediately.
+         */
+        void cancel();
+
+        /** Whether `cancel()` has been called. */
+        bool isCancelled() const;
+
         /** Get a set of results for this search.
          *
          * @param start The beginning of the range to get
@@ -180,8 +192,10 @@ class LIBZIM_API Search
         Xapian::Enquire& getEnquire() const;
 
     private: // data
+         // mp_state replaced a bare Enquire pointer: one slot, so sizeof(Search)
+         // is unchanged and this stays ABI-compatible with libzim 9.
          std::shared_ptr<InternalDataBase> mp_internalDb;
-         mutable std::unique_ptr<Xapian::Enquire> mp_enquire;
+         mutable std::unique_ptr<SearchState> mp_state;
          Query m_query;
 
   friend class Searcher;
