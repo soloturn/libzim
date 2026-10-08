@@ -20,8 +20,12 @@
 
 #define ZIM_PRIVATE
 #include <zim/archive.h>
+#include <zim/error.h>
 #include <zim/item.h>
 #include <zim/search.h>
+
+#include <atomic>
+#include <thread>
 
 #include <xapian.h>
 
@@ -330,5 +334,97 @@ TEST(Search, accents)
     auto result = search.getResults(0, 1);
     ASSERT_EQ(result.begin().getTitle(), "Test Article0");
   }
+}
+
+// The first match builds the cancel-aware query; every later match reads the
+// flag from inside get_mset() via the OP_FILTER posting source, so a set flag
+// aborts the match itself rather than being short-circuited by an API check.
+TEST(Search, cancelAbortsMatch)
+{
+  TempZimArchive tza("testZim");
+
+  zim::writer::Creator creator;
+  creator.configIndexing(true, "en");
+  creator.startZimCreation(tza.getPath());
+  creator.addItem(std::make_shared<TestItem>("path0", "text/html", "Test Article0", "This is a test article. temp0"));
+  creator.addItem(std::make_shared<TestItem>("path1", "text/html", "Test Article1", "This is another test article. For article1."));
+  creator.addItem(std::make_shared<TestItem>("path2", "text/html", "Test Article001", "This is a test article. Super. temp0"));
+
+  creator.setMainPath("path0");
+  creator.finishZimCreation();
+
+  zim::Archive archive(tza.getPath());
+  zim::Searcher searcher(archive);
+  zim::Query query("test article");
+  auto search = searcher.search(query);
+
+  ASSERT_FALSE(search.isCancelled());
+  ASSERT_EQ(3, search.getResults(0, 10).size());
+
+  search.cancel();
+  ASSERT_TRUE(search.isCancelled());
+
+  ASSERT_THROW(search.getResults(0, 10), zim::SearchCancelled);
+  ASSERT_THROW(search.getEstimatedMatches(), zim::SearchCancelled);
+  // Cancel is sticky.
+  ASSERT_THROW(search.getResults(0, 10), zim::SearchCancelled);
+}
+
+TEST(Search, cancelFromAnotherThread)
+{
+  TempZimArchive tza("testZim");
+
+  zim::writer::Creator creator;
+  creator.configIndexing(true, "en");
+  creator.startZimCreation(tza.getPath());
+  creator.addItem(std::make_shared<TestItem>("path0", "text/html", "Test Article0", "This is a test article. temp0"));
+
+  creator.setMainPath("path0");
+  creator.finishZimCreation();
+
+  zim::Archive archive(tza.getPath());
+  zim::Searcher searcher(archive);
+  zim::Query query("test article");
+  auto search = searcher.search(query);
+
+  std::atomic<bool> cancelDone{false};
+  std::thread canceller([&search, &cancelDone] {
+    search.cancel();
+    cancelDone.store(true, std::memory_order_release);
+  });
+  while (!cancelDone.load(std::memory_order_acquire)) {
+    std::this_thread::yield();
+  }
+  canceller.join();
+
+  ASSERT_TRUE(search.isCancelled());
+  ASSERT_THROW(search.getResults(0, 10), zim::SearchCancelled);
+}
+
+// The always-installed match-all filter must not alter what a search returns.
+TEST(Search, cancelFilterKeepsResults)
+{
+  TempZimArchive tza("testZim");
+
+  zim::writer::Creator creator;
+  creator.configIndexing(true, "en");
+  creator.startZimCreation(tza.getPath());
+  creator.addItem(std::make_shared<TestItem>("path0", "text/html", "Test Article0", "This is a test article. temp0"));
+  creator.addItem(std::make_shared<TestItem>("path1", "text/html", "Test Article1", "This is another test article. For article1."));
+  creator.addItem(std::make_shared<TestItem>("path2", "text/html", "Test Article001", "This is a test article. Super. temp0"));
+  creator.addItem(std::make_shared<TestItem>("path3", "text/html", "Test Article2", "This is a test article. Super."));
+  creator.addItem(std::make_shared<TestItem>("path4", "text/html", "Test Article23", "This is a test article. bis."));
+
+  creator.setMainPath("path0");
+  creator.finishZimCreation();
+
+  zim::Archive archive(tza.getPath());
+  zim::Searcher searcher(archive);
+  zim::Query query("test article");
+  auto search = searcher.search(query);
+
+  ASSERT_EQ(5, search.getEstimatedMatches());
+  ASSERT_EQ(5, search.getResults(0, 10).size());
+  ASSERT_EQ(3, search.getResults(2, 3).size());
 }
 } // unnamed namespace
